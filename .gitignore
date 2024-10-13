@@ -1,3 +1,6 @@
+# Ignore all files in the notes/ directory
+notes/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
