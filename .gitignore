@@ -4,6 +4,9 @@ notes/
 # Ignore all files in the generated_files/ directory
 generated_files/
 
+# Ignore all files in the logs/ directory
+logs/
+
 # Ignore macOS system files
 .DS_Store
 
