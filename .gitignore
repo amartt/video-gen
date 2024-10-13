@@ -1,6 +1,9 @@
 # Ignore all files in the notes/ directory
 notes/
 
+# Ignore macOS system files
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
