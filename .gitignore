@@ -1,3 +1,6 @@
+# Ignore all vscode settings
+.vscode/
+
 # Ignore all files in the notes/ directory
 notes/
 

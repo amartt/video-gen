@@ -4,45 +4,84 @@ import logging
 import sys
 import os
 from dotenv import load_dotenv 
-import re 
 import textwrap
 import tempfile
 import csv
+from nanoid import generate
+from typing import List, Dict
 
-load_dotenv()
+def log_audio_map(
+        text_audio_map: str,
+        file_storage_dir: str, 
+        file_log_name: str
+    ):
 
-# Credit to oscie57 for the sourced environment variables and values. See README for more details.
-API_BASE_URL = os.environ["API_BASE_URL"]
-USER_AGENT = os.environ["USER_AGENT"]
-CHARACTER_LIMIT = int(os.environ["CHARACTER_LIMIT"])
-SPEAKER_MAP_TYPE = int(os.environ["SPEAKER_MAP_TYPE"])
-AID = int(os.environ["AID"])
+    # Check for existence of file
+    filepath = os.path.join(file_storage_dir, file_log_name)
+    file_exists = os.path.isfile(filepath)
 
-def text_to_speech(
+    # Record mappings of text and filenames for the audio
+    with open(filepath, 'a', newline='') as f:
+        writer = csv.writer(f)
+
+        # If the file doesn't exist, write the header first
+        if not file_exists:
+            writer.writerow(['Filename', 'Text'])
+
+        # Write each item in the dictionary to the CSV
+        for filename, text in text_audio_map.items():
+            writer.writerow([filename, text])
+
+def sort_files(file_list: List[str]) -> List[str]:
+    # Given that the filenames in file_list are integers, sort them in increasing order
+    return sorted(file_list, key=lambda x: int(x.split('.')[0]))
+
+def combine_files(
+        storage_path: str, 
+        filename: str
+    ):
+    """
+    Combines all files in the specified directory into a single file.
+
+    Parameters:
+    - storage_path: Directory containing the files to be combined.
+    - filename: Output file name.
+    """
+    with open(filename, 'wb') as out_file:
+        for temp_file in sort_files(os.listdir(storage_path)):
+            file_path = os.path.join(storage_path, temp_file)
+            with open(file_path, 'rb') as f:
+                out_file.write(f.read())
+
+def get_audio_from_text(
+        env_vars: Dict[str, str],
         session_id: str, 
         text_speaker: str, 
         req_text: str,
         filename: str
     ):
+    """
+    Function to take text as input and output audio in the filename path with  a text_speaker voice
+    """
 
     # Define request parameters
     params = {
         'text_speaker': text_speaker,
         'req_text': req_text,
-        'speaker_map_type': SPEAKER_MAP_TYPE,
-        'aid': AID
+        'speaker_map_type': env_vars["SPEAKER_MAP_TYPE"],
+        'aid': env_vars["AID"]
     }
 
     # Define request headers
     headers = {
-        'User-Agent': USER_AGENT,
+        'User-Agent': env_vars["USER_AGENT"],
         'Cookie': f'sessionid={session_id}'
     }
 
     try:
         # Make the request
         response = requests.post(
-            url=API_BASE_URL,
+            url=env_vars["API_BASE_URL"],
             headers=headers,
             params=params
         )
@@ -90,124 +129,86 @@ def text_to_speech(
                     out.write(decoded_audio_data)
                 logging.info(f"Audio successfully written to {filename}")
             except (IOError, OSError) as e:
-                logging.error(f"Failed to write audio to {filename}. Error: {e}")
+                logging.error(f"Failed to write audio to {filename}.\nError: {e}")
                 sys.exit(1)
 
-# def batch_create(batch_storage_path: str, filename: str):
-#     out = open(filename, 'wb')
+def write_text_to_audio(
+        output_file: str,
+        session_id: str,
+        req_text: str, 
+        text_speaker: str,
+        env_vars: Dict[str, str]
+    ):
 
-#     def sorted_alphanumeric(data):
-#         convert = lambda text: int(text) if text.isdigit() else text.lower()
-#         alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
-#         return sorted(data, key=alphanum_key)
+    # Break apart text based on the character limit
+    texts_list = textwrap.wrap(req_text, width=env_vars["CHARACTER_LIMIT"], break_long_words=True, break_on_hyphens=False)
 
-#     for item in sorted_alphanumeric(os.listdir(batch_storage_path)):
-#         filestuff = open(batch_storage_path + item, 'rb').read()
-#         out.write(filestuff)
-
-#     out.close()
-
-# def sorted_alphanumeric(data):
-#     """
-#     Sorts a list in alphanumeric order.
-#     """
-#     convert = lambda text: int(text) if text.isdigit() else text.lower()
-#     alphanum_key = lambda key: [convert(c) for c in re.split('([0-9]+)', key)]
-#     return sorted(data, key=alphanum_key)
-
-def sorted_alphanumeric(data):
-    """
-    Sorts a list in alphanumeric order, handling both numeric and alphabetic parts.
-    """
-    def alphanum_key(key):
-        # Split the string into numeric and non-numeric parts
-        parts = re.split('([0-9]+)', key)
-        # Convert numeric parts to integers and lowercase non-numeric parts
-        return [int(part) if part.isdigit() else part.lower() for part in parts]
-    
-    return sorted(data, key=alphanum_key)
-
-def batch_create(batch_storage_path: str, filename: str):
-    """
-    Combines all files in the specified directory into a single file.
-
-    Parameters:
-    - batch_storage_path: Directory containing the batch files.
-    - filename: Output file name.
-    """
-    with open(filename, 'wb') as out_file:
-        for item in sorted_alphanumeric(os.listdir(batch_storage_path)):
-            file_path = os.path.join(batch_storage_path, item)
-            with open(file_path, 'rb') as f:
-                out_file.write(f.read())
-
-def log_created_audio(file_storage_dir, file_log_name):
-
-    filepath = os.path.join(file_storage_dir, file_log_name)
-    file_exists = os.path.isfile(filepath)
-
-    # Open the CSV file in append mode
-    with open(filepath, 'a', newline='') as f:
-        writer = csv.writer(f)
-
-        # If the file doesn't exist, write the header first
-        if not file_exists:
-            writer.writerow(['Filename', 'Text'])
-
-        # Write each item in the dictionary to the CSV
-        for filename, text in audio_mapping.items():
-            writer.writerow([filename, text])
-
-def main(file_storage_dir, req_text, filename):
-
-    text_speaker = "en_us_002"
-    session_id = "8c00f6a55de19e5393c875c8158914c7"
-
-    chunk_size = CHARACTER_LIMIT
-    textlist = textwrap.wrap(req_text, width=chunk_size, break_long_words=True, break_on_hyphens=False)
-
-    # Create a temporary directory
-    temp_dir = os.path.join(file_storage_dir, "tmp")
+    # Create temporary audio files in temp_dir and combine them into the output_file
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Logic to create temporary audio files in temp_dir
-        for index, item in enumerate(textlist):
-            text_to_speech(
+        for index, text in enumerate(texts_list):
+            get_audio_from_text(
+                env_vars,
                 session_id, 
                 text_speaker, 
-                item, 
-                os.path.join(temp_dir, f"audio_{index}.mp3")
+                text, 
+                filename=os.path.join(temp_dir, f"{index}.mp3")
             )
 
-        # Logic to combine the audio files in temp_dir
-        batch_create(temp_dir, filename)
+        # Combine the intermediate audio files in temp_dir into the output_file
+        combine_files(temp_dir, output_file)
 
-    # temp_dir = os.path.join(file_storage_dir, "tmp")
-    # if not os.path.exists(temp_dir):
-    #     os.makedirs(temp_dir)
+def get_text_speaker():
+    """
+    Helper function to retrieve the speaker for the audio, placeholder for now
+    """
+    return "en_us_002"
 
-    # for index, item in enumerate(textlist):
-    #     text_to_speech(session_id, text_speaker, item, f"{temp_dir}_{index}.mp3")
+def get_session_id():
+    """
+    Helper function to retrieve the session id, placeholder for now
+    """
+    return "8c00f6a55de19e5393c875c8158914c7"
 
-    # batch_create(temp_dir, filename)
-
-    # # Remove temporary files
-    # for item in os.listdir(temp_dir):
-    #     os.remove(temp_dir + item)
-    # if os.path.exists(temp_dir):
-    #     os.removedirs(temp_dir)
-
-if __name__ == "__main__":
-    # Configure logging
-    logging_dir = "./logs"
+def configure_logging(
+        logging_dir: str, 
+        logging_file: str
+    ):
     if not os.path.exists(logging_dir):
         os.makedirs(logging_dir)
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(os.path.join(logging_dir, "audio_generation.log")),
+            logging.FileHandler(os.path.join(logging_dir, logging_file)),
             logging.StreamHandler()
         ]
+    )
+
+def load_env_variables() -> Dict[str, str]:
+    """
+    Loads environment variables and returns them as a dictionary.
+    """
+    load_dotenv()
+    # Credit to oscie57 for the sourced environment variables and values. See README for more details.
+    return {
+        "API_BASE_URL": os.environ["API_BASE_URL"],
+        "USER_AGENT": os.environ["USER_AGENT"],
+        "CHARACTER_LIMIT": int(os.environ["CHARACTER_LIMIT"]),
+        "SPEAKER_MAP_TYPE": int(os.environ["SPEAKER_MAP_TYPE"]),
+        "AID": int(os.environ["AID"])
+    }
+
+def main():
+    """
+    Main function to write pieces of text to audio files
+    """
+    # Retrieve environment variables
+    env_vars = load_env_variables()
+
+    # Configure logging
+    configure_logging(
+        logging_dir="./logs",
+        logging_file="audio_generation.log"
     )
 
     # Handle storage to dump files into
@@ -221,13 +222,29 @@ if __name__ == "__main__":
     ]
 
     # Process each piece of text and convert to audio
-    audio_mapping = {}
-    for index, req_text in enumerate(req_texts):
-        filename = os.path.join(file_storage_dir, f"audio_{index}.mp3")
+    text_audio_map = {}
+    session_id = get_session_id()
+    text_speaker = get_text_speaker()
+    for req_text in req_texts:
+        unique_id = generate(size=12)
+        output_file = os.path.join(file_storage_dir, f"{unique_id}.mp3")
         try:
-            main(file_storage_dir, req_text, filename)
-            audio_mapping[filename] = req_text
+            write_text_to_audio( 
+                output_file,
+                session_id,
+                req_text, 
+                text_speaker,
+                env_vars
+            )
+            text_audio_map[output_file] = req_text
         except Exception as e:
-            logging.error(f"Failed to convert text to audio {e}: {req_text}")
+            logging.error(f"{e}: Failed to convert given text to audio: {req_text}")
 
-    log_created_audio(file_storage_dir, "audio_to_text_map.csv")    
+    log_audio_map(
+        text_audio_map, 
+        file_storage_dir, 
+        file_log_name="audio_to_text_map.csv"
+    )
+
+if __name__ == "__main__":
+    main()
