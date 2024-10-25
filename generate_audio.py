@@ -8,7 +8,7 @@ import textwrap
 import tempfile
 import csv
 from nanoid import generate
-from typing import List, Dict
+from typing import List, Dict, Any
 
 def log_audio_map(
         text_audio_map: str,
@@ -53,54 +53,34 @@ def combine_files(
             with open(file_path, 'rb') as f:
                 out_file.write(f.read())
 
-def get_audio_from_text(
-        env_vars: Dict[str, str],
-        session_id: str, 
-        text_speaker: str, 
-        req_text: str,
-        filename: str
+def extract_write_audio_data(
+        filename: str,
+        response_json: Dict[str, Any]
     ):
     """
-    Function to take text as input and output audio in the filename path with  a text_speaker voice
+    Extracts the audio data from the response and writes it to the inputted filename
     """
-
-    # Define request parameters
-    params = {
-        'text_speaker': text_speaker,
-        'req_text': req_text,
-        'speaker_map_type': env_vars["SPEAKER_MAP_TYPE"],
-        'aid': env_vars["AID"]
-    }
-
-    # Define request headers
-    headers = {
-        'User-Agent': env_vars["USER_AGENT"],
-        'Cookie': f'sessionid={session_id}'
-    }
-
-    try:
-        # Make the request
-        response = requests.post(
-            url=env_vars["API_BASE_URL"],
-            headers=headers,
-            params=params
-        )
-
-        # Process the response
-        if response.status_code == 200:
-            try:
-                response_json = response.json()
-            except ValueError:
-                logging.error("Failed to decode JSON from response.")
-                sys.exit(1)
-        else:
-            logging.error(f"Request failed with status code: {response.status_code}.\nResponse content: {response.text}")
-            sys.exit(1)
-            
-    except Exception as e:
-        logging.error(f"Request failed due to an exception: {e}")
+    voice_str = response_json.get("data", {}).get("v_str", None)
+    if voice_str is None:
+        logging.error(f"'v_str' is missing from the response, needed to generate audio.\nFull response: {response_json}")
         sys.exit(1)
-    
+    else:
+        # Write audio contents to file
+        decoded_audio_data = base64.b64decode(voice_str)
+        try:
+            with open(filename, "wb") as out:
+                out.write(decoded_audio_data)
+            logging.info(f"Audio successfully written to {filename}")
+        except (IOError, OSError) as e:
+            logging.error(f"Failed to write audio to {filename}.\nError: {e}")
+            sys.exit(1)
+
+def check_tts_status_code(
+        response_json: Dict[str, Any]
+    ):
+    """
+    Checks the status code for the audio response
+    """
     status_code_lookup = {
         None: "No status code recieved",
         0: "Response is valid and processed successfully",
@@ -117,20 +97,67 @@ def get_audio_from_text(
     else:
         logging.info(status_code_message)
 
-        voice_str = response_json.get("data", {}).get("v_str", None)
-        if voice_str is None:
-            logging.error(f"'v_str' is missing from the response, needed to generate audio.\nFull response: {response_json}")
-            sys.exit(1)
-        else:
-            # Write audio contents to file
-            decoded_audio_data = base64.b64decode(voice_str)
+def make_post_request(
+        env_vars: Dict[str, str],
+        headers: Dict[str, str], 
+        params: Dict[str, str], 
+    ) -> Dict[str, Any]:
+    # Make the request
+    try:
+        response = requests.post(
+            url=env_vars["API_BASE_URL"],
+            headers=headers,
+            params=params
+        )
+
+        # Process the response
+        if response.status_code == 200:
             try:
-                with open(filename, "wb") as out:
-                    out.write(decoded_audio_data)
-                logging.info(f"Audio successfully written to {filename}")
-            except (IOError, OSError) as e:
-                logging.error(f"Failed to write audio to {filename}.\nError: {e}")
+                return response.json()
+            except ValueError:
+                logging.error("Failed to decode JSON from response.")
                 sys.exit(1)
+        else:
+            logging.error(f"Request failed with status code: {response.status_code}.\nResponse content: {response.text}")
+            sys.exit(1)
+            
+    except Exception as e:
+        logging.error(f"Request failed due to an exception: {e}")
+        sys.exit(1)
+
+def get_audio_from_text(
+        env_vars: Dict[str, str],
+        session_id: str, 
+        text_speaker: str, 
+        req_text: str,
+        filename: str
+    ):
+    """
+    Function to take text as input and output audio to filename with a text_speaker voice
+    """
+
+    # Define request parameters
+    params = {
+        'text_speaker': text_speaker,
+        'req_text': req_text,
+        'speaker_map_type': env_vars["SPEAKER_MAP_TYPE"],
+        'aid': env_vars["AID"]
+    }
+
+    # Define request headers
+    headers = {
+        'User-Agent': env_vars["USER_AGENT"],
+        'Cookie': f'sessionid={session_id}'
+    }
+
+    # Make the request and get the response
+    response_json = make_post_request(env_vars, headers, params)
+
+    # Check the status code
+    check_tts_status_code(response_json)
+
+    # Extract and write audio data
+    extract_write_audio_data(filename, response_json)
 
 def write_text_to_audio(
         output_file: str,
@@ -154,7 +181,7 @@ def write_text_to_audio(
                 filename=os.path.join(temp_dir, f"{index}.mp3")
             )
 
-        # Combine the intermediate audio files in temp_dir into the output_file
+        # Combine the temp audio files in temp_dir into the final output_file
         combine_files(temp_dir, output_file)
 
 def get_text_speaker():
@@ -175,6 +202,7 @@ def configure_logging(
     ):
     if not os.path.exists(logging_dir):
         os.makedirs(logging_dir)
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
@@ -239,7 +267,8 @@ def main():
             text_audio_map[output_file] = req_text
         except Exception as e:
             logging.error(f"{e}: Failed to convert given text to audio: {req_text}")
-
+    
+    # Log locations of audio and associated text
     log_audio_map(
         text_audio_map, 
         file_storage_dir, 
