@@ -98,14 +98,17 @@ def check_tts_status_code(
         logging.info(status_code_message)
 
 def make_post_request(
-        env_vars: Dict[str, str],
+        url: str,
         headers: Dict[str, str], 
         params: Dict[str, str], 
     ) -> Dict[str, Any]:
+    """
+    Helper function to make a post request and return a response.
+    """
     # Make the request
     try:
         response = requests.post(
-            url=env_vars["API_BASE_URL"],
+            url=url,
             headers=headers,
             params=params
         )
@@ -151,7 +154,7 @@ def get_audio_from_text(
     }
 
     # Make the request and get the response
-    response_json = make_post_request(env_vars, headers, params)
+    response_json = make_post_request(env_vars["API_BASE_URL"], headers, params)
 
     # Check the status code
     check_tts_status_code(response_json)
@@ -167,7 +170,7 @@ def write_text_to_audio(
         env_vars: Dict[str, str]
     ):
 
-    # Break apart text based on the character limit
+    # Break apart text based on the character limit for each request
     texts_list = textwrap.wrap(req_text, width=env_vars["CHARACTER_LIMIT"], break_long_words=True, break_on_hyphens=False)
 
     # Create temporary audio files in temp_dir and combine them into the output_file
