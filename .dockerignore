@@ -3,7 +3,7 @@
 Dockerfile
 .git
 .gitignore
-config_setup.py
+setup.py
 README.md
 .env-template
 

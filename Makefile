@@ -9,7 +9,7 @@ clean:
 # Update .dockerignore, requirements.txt, and .env-template
 # Add, commit, and push to a specified branch and remote
 update:
-	python setup_files.py
+	python setup.py
 	git add .
 	git commit -m "$(msg)"
 	git push origin main

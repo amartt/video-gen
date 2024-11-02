@@ -95,7 +95,7 @@ def main():
         "Dockerfile",
         ".git",
         git_ignore_file,
-        "config_setup.py",
+        "setup.py",
         "README.md",
         env_template
     ]
