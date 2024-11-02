@@ -98,8 +98,8 @@ def check_tts_status_code(
         logging.info(status_code_message)
 
 def make_post_request(
+        session: requests.Session,
         url: str,
-        headers: Dict[str, str], 
         params: Dict[str, str], 
     ) -> Dict[str, Any]:
     """
@@ -107,9 +107,8 @@ def make_post_request(
     """
     # Make the request
     try:
-        response = requests.post(
+        response = session.post(
             url=url,
-            headers=headers,
             params=params
         )
 
@@ -129,8 +128,8 @@ def make_post_request(
         sys.exit(1)
 
 def get_audio_from_text(
+        session: requests.Session,
         env_vars: Dict[str, str],
-        session_id: str, 
         text_speaker: str, 
         req_text: str,
         filename: str
@@ -147,14 +146,12 @@ def get_audio_from_text(
         'aid': env_vars["AID"]
     }
 
-    # Define request headers
-    headers = {
-        'User-Agent': env_vars["USER_AGENT"],
-        'Cookie': f'sessionid={session_id}'
-    }
-
     # Make the request and get the response
-    response_json = make_post_request(env_vars["API_BASE_URL"], headers, params)
+    response_json = make_post_request(
+        session,
+        env_vars["API_BASE_URL"],
+        params
+    )
 
     # Check the status code
     check_tts_status_code(response_json)
@@ -163,8 +160,8 @@ def get_audio_from_text(
     extract_write_audio_data(filename, response_json)
 
 def write_text_to_audio(
+        session: requests.Session,
         output_file: str,
-        session_id: str,
         req_text: str, 
         text_speaker: str,
         env_vars: Dict[str, str]
@@ -177,8 +174,8 @@ def write_text_to_audio(
     with tempfile.TemporaryDirectory() as temp_dir:
         for index, text in enumerate(texts_list):
             get_audio_from_text(
+                session,
                 env_vars,
-                session_id, 
                 text_speaker, 
                 text, 
                 filename=os.path.join(temp_dir, f"{index}.mp3")
@@ -254,22 +251,30 @@ def main():
 
     # Process each piece of text and convert to audio
     text_audio_map = {}
-    session_id = get_session_id()
-    text_speaker = get_text_speaker()
-    for req_text in req_texts:
-        unique_id = generate(size=12)
-        output_file = os.path.join(file_storage_dir, f"{unique_id}.mp3")
-        try:
-            write_text_to_audio( 
-                output_file,
-                session_id,
-                req_text, 
-                text_speaker,
-                env_vars
-            )
-            text_audio_map[output_file] = req_text
-        except Exception as e:
-            logging.error(f"{e}: Failed to convert given text to audio: {req_text}")
+    with requests.Session() as session:
+        # Define session headers (constant for all requests)
+        session_id = get_session_id()
+        session.headers.update(
+            {
+                'User-Agent': env_vars["USER_AGENT"],
+                'Cookie': f'sessionid={session_id}'
+            }
+        )
+        for req_text in req_texts:
+            text_speaker = get_text_speaker()
+            unique_id = generate(size=12)
+            output_file = os.path.join(file_storage_dir, f"{unique_id}.mp3")
+            try:
+                write_text_to_audio( 
+                    session,
+                    output_file,
+                    req_text, 
+                    text_speaker,
+                    env_vars
+                )
+                text_audio_map[output_file] = req_text
+            except Exception as e:
+                logging.error(f"{e}: Failed to convert given text to audio: {req_text}")
     
     # Log locations of audio and associated text
     log_audio_map(
