@@ -9,6 +9,7 @@ import tempfile
 import csv
 from nanoid import generate
 from typing import List, Dict, Any
+import polars as pl
 
 def log_audio_map(
         text_audio_map: str,
@@ -184,17 +185,37 @@ def write_text_to_audio(
         # Combine the temp audio files in temp_dir into the final output_file
         combine_files(temp_dir, output_file)
 
-def get_text_speaker():
-    """
-    Helper function to retrieve the speaker for the audio, placeholder for now
-    """
-    return "en_us_002"
-
-def get_session_id():
+def get_session_id() -> str:
     """
     Helper function to retrieve the session id, placeholder for now
     """
     return "8c00f6a55de19e5393c875c8158914c7"
+
+def get_request_texts() -> List[Dict[str, Any]]:
+    """
+    Helper function to retrieve the pieces of text to convert to audio
+    """
+    num_rows = 3
+    schema = {
+        "request_id": pl.Int64,
+        "text_speaker": pl.Utf8,
+        "request_text": pl.Utf8
+    }
+    data = {
+        "request_id": range(1, num_rows + 1),
+        "text_speaker": ["en_us_002" for _ in range(num_rows)],
+        "request_text": [
+            "The path to discovery is rarely a straight line. Throughout history, explorers have ventured into the unknown, driven by an unyielding curiosity and a desire to uncover the secrets of our world. From the icy tundras of the North to the vast deserts of the Sahara, each journey held the promise of wonder, danger, and knowledge. And while their paths were fraught with challenges, each step brought new insights that reshaped our understanding of the Earth and the cosmos beyond.",
+            "In the realm of technology, change is the only constant. Innovation has transformed how we communicate, learn, and interact, shrinking the world into a global village. The rise of artificial intelligence, machine learning, and blockchain has sparked a new era, redefining industries and reshaping our everyday lives. As we push forward, we must consider not just what is possible, but also the ethical implications of our advancements, ensuring that technology serves humanity as a force for good.",
+            "The natural world is a delicate web of interconnected life, each species playing a vital role in the ecosystem. From the towering trees of the rainforest to the coral reefs teeming with colorful fish, our planet is a masterpiece of biodiversity. However, human activity has strained this balance, leading to habitat destruction, climate change, and species extinction. Conservation efforts are essential to preserving this fragile balance, ensuring that future generations can experience the awe and beauty of the world as we know it today."
+        ]
+    }
+
+    req_texts_df = pl.DataFrame(data, schema)
+
+    req_texts_dicts = req_texts_df.to_dicts()
+
+    return req_texts_dicts
 
 def configure_logging(
         logging_dir: str, 
@@ -245,9 +266,7 @@ def main():
         os.makedirs(file_storage_dir)
 
     # Define pieces of text to convert to audio
-    req_texts = [
-        "In a quiet corner of the city, there’s a small café where time seems to slow down. The charm is in the details—soft light, mellow music, and the murmur of conversations. It feels like home to everyone."
-    ]
+    req_texts_dicts = get_request_texts()
 
     # Process each piece of text and convert to audio
     text_audio_map = {}
@@ -260,10 +279,11 @@ def main():
                 'Cookie': f'sessionid={session_id}'
             }
         )
-        for req_text in req_texts:
-            text_speaker = get_text_speaker()
+        for row in req_texts_dicts:
+            req_text = row["request_text"]
+            text_speaker = row["text_speaker"]
             unique_id = generate(size=12)
-            output_file = os.path.join(file_storage_dir, f"{unique_id}.mp3")
+            output_file = os.path.join(file_storage_dir, f"{unique_id}_{text_speaker}.mp3")
             try:
                 write_text_to_audio( 
                     session,
