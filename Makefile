@@ -6,10 +6,14 @@ run:
 clean:
 	rm -rf logs/ generated_files/
 
+# Clean up unneeded packages and dependencies in environment
 # Update .dockerignore, requirements.txt, and .env-template
+env:
+	python cleanup_env.py
+	python setup.py
+
 # Add, commit, and push to a specified branch and remote
 update:
-	python setup.py
 	git add .
 	git commit -m "$(msg)"
 	git push origin main
