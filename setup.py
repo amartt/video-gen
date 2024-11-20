@@ -19,10 +19,11 @@ def update_file(
         os.remove(temp_file)
 
 def generate_requirements(
+        requirements_excludes: List,
         file: str 
     ):
     """
-    Generates a requirements file with sorted dependencies.
+    Generates a requirements file with sorted dependencies, excluding specified packages.
     """
     result = subprocess.run(
         ["pip", "freeze"],
@@ -30,8 +31,19 @@ def generate_requirements(
         text=True,
         check=True
     )
+
+    # Process the output to not include any of the excluded packages
+    package_output_lines = result.stdout.splitlines()
+    filtered_lines = []
+    for line in package_output_lines:
+        package_name = line.split("==")[0]
+        if package_name not in requirements_excludes:
+            filtered_lines.append(line)
+
+    # Write the filtered and sorted lines to the requirements file
     with open(file, 'w') as f:
-        f.write('\n'.join(sorted(result.stdout.splitlines())))
+        f.write('\n'.join(sorted(filtered_lines)))
+
     return file
 
 def create_env_template(
@@ -88,8 +100,13 @@ def main():
     docker_ignore_file = ".dockerignore"
     env_template = ".env-template"
 
-    # Additional files to be excluded from the Docker image
-    additional_excludes = [
+    # Packages to be excluded from the requirements.txt file
+    requirements_excludes = [
+        "pipdeptree"
+    ]
+
+    # Additional exclusions from the Docker image which are not currently in the .gitignore
+    docker_excludes = [
         "# Additional files to be excluded",
         docker_ignore_file,
         "Dockerfile",
@@ -101,7 +118,7 @@ def main():
     ]
     # Check existing gitignore file and overwrite dockerignore if there are updates
     temp_docker_ignore_file = copy_gitignore_to_dockerignore(
-        additional_excludes,
+        docker_excludes,
         git_ignore_path=git_ignore_file,
         docker_ignore_path=f"{docker_ignore_file}-temp"
     )
@@ -122,6 +139,7 @@ def main():
 
     # Check existing packages from the python environment and overwrite requirements if there are updates
     temp_requirements_file = generate_requirements(
+        requirements_excludes,
         file="temp_requirements.txt"
     )
     update_file(
