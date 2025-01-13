@@ -5,6 +5,9 @@ A tool to automate the creation of short and long-form videos with captioning, t
 
 ### Prerequisites
 - [Docker](https://www.docker.com/get-started) installed on your machine
+- AWS Profile with Permissions: Ensure you have an AWS CLI profile configured. This profile must use a role or user with the following managed policies:
+  - `AmazonPollyFullAccess`
+  - `AmazonS3FullAccess`
 
 ### Setup Instructions
 
@@ -76,4 +79,4 @@ docker exec video-gen-container make clean
 <!-- ## Testing -->
 
 ## Credits
-Some environment variables are sourced from [oscie57's tiktok-voice repository](https://github.com/oscie57/tiktok-voice).
+- [Amazon Polly](https://aws.amazon.com/polly/): Used for text-to-speech synthesis in this tool.
