@@ -4,7 +4,7 @@ run:
 
 # Clean up log and output file directories
 clean:
-	rm -rf logs/ generated_files/
+	rm -rf logs/ generated_files/ __pycache__/
 
 # Clean up unneeded packages and dependencies in environment
 # Update .dockerignore, requirements.txt, and .env-template
