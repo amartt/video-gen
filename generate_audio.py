@@ -1,21 +1,28 @@
-import requests 
-import base64 
 import logging
 import sys
 import os
 from dotenv import load_dotenv 
-import textwrap
-import tempfile
 import csv
 from nanoid import generate
 from typing import List, Dict, Any
 import polars as pl
+import subprocess
+import boto3
+from botocore.exceptions import TokenRetrievalError
+from polly_wrapper import PollyWrapper
 
 def log_audio_map(
         text_audio_map: str,
         file_storage_dir: str, 
         file_log_name: str
     ):
+    """
+    Log the mappings of text to audio filenames to a CSV file.
+
+    :param text_audio_map: A dictionary mapping audio filenames to text.
+    :param file_storage_dir: The directory to store the log file.
+    :param file_log_name: The name of the log file.
+    """
 
     # Check for existence of file
     filepath = os.path.join(file_storage_dir, file_log_name)
@@ -33,169 +40,69 @@ def log_audio_map(
         for filename, text in text_audio_map.items():
             writer.writerow([filename, text])
 
-def sort_files(file_list: List[str]) -> List[str]:
-    # Given that the filenames in file_list are integers, sort them in increasing order
-    return sorted(file_list, key=lambda x: int(x.split('.')[0]))
-
-def combine_files(
-        storage_path: str, 
-        filename: str
-    ):
-    """
-    Combines all files in the specified directory into a single file.
-
-    Parameters:
-    - storage_path: Directory containing the files to be combined.
-    - filename: Output file name.
-    """
-    with open(filename, 'wb') as out_file:
-        for temp_file in sort_files(os.listdir(storage_path)):
-            file_path = os.path.join(storage_path, temp_file)
-            with open(file_path, 'rb') as f:
-                out_file.write(f.read())
-
-def extract_write_audio_data(
-        filename: str,
-        response_json: Dict[str, Any]
-    ):
-    """
-    Extracts the audio data from the response and writes it to the inputted filename
-    """
-    voice_str = response_json.get("data", {}).get("v_str", None)
-    if voice_str is None:
-        logging.error(f"'v_str' is missing from the response, needed to generate audio.\nFull response: {response_json}")
-        sys.exit(1)
-    else:
-        # Write audio contents to file
-        decoded_audio_data = base64.b64decode(voice_str)
-        try:
-            with open(filename, "wb") as out:
-                out.write(decoded_audio_data)
-            logging.info(f"Audio successfully written to {filename}")
-        except (IOError, OSError) as e:
-            logging.error(f"Failed to write audio to {filename}.\nError: {e}")
-            sys.exit(1)
-
-def check_tts_status_code(
-        response_json: Dict[str, Any]
-    ):
-    """
-    Checks the status code for the audio response
-    """
-    status_code_lookup = {
-        None: "No status code recieved",
-        0: "Response is valid and processed successfully",
-        1: "Invalid 'aid' value or missing 'text_speaker' or 'req_text' parameters",
-        2: "'req_text' exceeds the character limit",
-        3: "Unknown issue encountered",
-        4: "Invalid 'text_speaker' parameter value"
-    }
-    status_code = response_json.get("status_code", None)
-    status_code_message = status_code_lookup.get(status_code, f"Unknown status code: {status_code}")
-    if status_code != 0:
-        logging.error(f"{status_code_message}\nFull response: {response_json}")
-        sys.exit(1)
-    else:
-        logging.info(status_code_message)
-
-def make_post_request(
-        session: requests.Session,
-        url: str,
-        params: Dict[str, str], 
-    ) -> Dict[str, Any]:
-    """
-    Helper function to make a post request and return a response.
-    """
-    # Make the request
-    try:
-        response = session.post(
-            url=url,
-            params=params
-        )
-
-        # Process the response
-        if response.status_code == 200:
-            try:
-                return response.json()
-            except ValueError:
-                logging.error("Failed to decode JSON from response.")
-                sys.exit(1)
-        else:
-            logging.error(f"Request failed with status code: {response.status_code}.\nResponse content: {response.text}")
-            sys.exit(1)
-            
-    except Exception as e:
-        logging.error(f"Request failed due to an exception: {e}")
-        sys.exit(1)
-
-def get_audio_from_text(
-        session: requests.Session,
-        env_vars: Dict[str, str],
-        text_speaker: str, 
-        req_text: str,
-        filename: str
-    ):
-    """
-    Function to take text as input and output audio to filename with a text_speaker voice
-    """
-
-    # Define request parameters
-    params = {
-        'text_speaker': text_speaker,
-        'req_text': req_text,
-        'speaker_map_type': env_vars["SPEAKER_MAP_TYPE"],
-        'aid': env_vars["AID"]
-    }
-
-    # Make the request and get the response
-    response_json = make_post_request(
-        session,
-        env_vars["API_BASE_URL"],
-        params
-    )
-
-    # Check the status code
-    check_tts_status_code(response_json)
-
-    # Extract and write audio data
-    extract_write_audio_data(filename, response_json)
-
 def write_text_to_audio(
-        session: requests.Session,
-        output_file: str,
-        req_text: str, 
-        text_speaker: str,
-        env_vars: Dict[str, str]
+        profile_name: str,
+        polly_wrapper: PollyWrapper, 
+        text: str, 
+        output_filename: str, 
+        engine: str, 
+        voice: str, 
+        audio_format: str,
+        lang_code: str
     ):
-
-    # Break apart text based on the character limit for each request
-    texts_list = textwrap.wrap(req_text, width=env_vars["CHARACTER_LIMIT"], break_long_words=True, break_on_hyphens=False)
-
-    # Create temporary audio files in temp_dir and combine them into the output_file
-    with tempfile.TemporaryDirectory() as temp_dir:
-        for index, text in enumerate(texts_list):
-            get_audio_from_text(
-                session,
-                env_vars,
-                text_speaker, 
-                text, 
-                filename=os.path.join(temp_dir, f"{index}.mp3")
-            )
-
-        # Combine the temp audio files in temp_dir into the final output_file
-        combine_files(temp_dir, output_file)
-
-def get_session_id() -> str:
     """
-    Helper function to retrieve the session id, placeholder for now
+    Synthesizes and writes the given text to audio and saves the output locally.
+
+    :param profile_name: The AWS profile name to use for authentication.
+    :param polly_wrapper: An instance of PollyWrapper.
+    :param text: The text to synthesize.
+    :param output_filename: The filename to save the audio locally.
+    :param engine: The engine type.
+    :param voice: The voice ID to use for synthesis.
+    :param audio_format: The audio format.
+    :param lang_code: The language code for the text.
+
+    :return: True if the audio was successfully written to the output file, False otherwise.
     """
-    return "8c00f6a55de19e5393c875c8158914c7"
+    audio_stream = None
+    write_success = False
+    try:
+        # Synthesize given text to audio
+        audio_stream, _ = polly_wrapper.synthesize(
+            text=text,
+            engine=engine,
+            voice=voice,
+            audio_format=audio_format,
+            lang_code=lang_code
+        )
+    except TokenRetrievalError as e:
+        logging.error(f"Failed to retrieve token: {e}")
+        logging.info("Attempting to re-authenticate with AWS SSO.")
+        authenticate_aws_sso(profile_name)
+    except Exception as e:
+        logging.error(f"Failed to synthesize audio: {e}")
+
+    # Save the audio stream locally
+    if audio_stream:
+        try:
+            with open(output_filename, "wb") as audio_file:
+                audio_file.write(audio_stream.read())
+            write_success = True
+            logging.info(f"Audio saved to {output_filename}")
+        except Exception as e:
+            logging.error(f"Failed to save audio to {output_filename}: {e}")
+    else:
+        logging.error("Audio stream is None. No file was saved.")
+
+    return write_success
 
 def get_request_texts() -> List[Dict[str, Any]]:
     """
-    Helper function to retrieve the pieces of text to convert to audio
+    Helper function to retrieve the pieces of text to convert to audio.
+
+    :return: A list of dictionaries containing the request_id, text_speaker, and request_text.
     """
-    num_rows = 3
+    num_rows = 2
     schema = {
         "request_id": pl.Int64,
         "text_speaker": pl.Utf8,
@@ -203,10 +110,9 @@ def get_request_texts() -> List[Dict[str, Any]]:
     }
     data = {
         "request_id": range(1, num_rows + 1),
-        "text_speaker": ["en_us_002" for _ in range(num_rows)],
+        "text_speaker": ["Joanna" for _ in range(num_rows)],
         "request_text": [
             "The path to discovery is rarely a straight line. Throughout history, explorers have ventured into the unknown, driven by an unyielding curiosity and a desire to uncover the secrets of our world. From the icy tundras of the North to the vast deserts of the Sahara, each journey held the promise of wonder, danger, and knowledge. And while their paths were fraught with challenges, each step brought new insights that reshaped our understanding of the Earth and the cosmos beyond.",
-            "In the realm of technology, change is the only constant. Innovation has transformed how we communicate, learn, and interact, shrinking the world into a global village. The rise of artificial intelligence, machine learning, and blockchain has sparked a new era, redefining industries and reshaping our everyday lives. As we push forward, we must consider not just what is possible, but also the ethical implications of our advancements, ensuring that technology serves humanity as a force for good.",
             "The natural world is a delicate web of interconnected life, each species playing a vital role in the ecosystem. From the towering trees of the rainforest to the coral reefs teeming with colorful fish, our planet is a masterpiece of biodiversity. However, human activity has strained this balance, leading to habitat destruction, climate change, and species extinction. Conservation efforts are essential to preserving this fragile balance, ensuring that future generations can experience the awe and beauty of the world as we know it today."
         ]
     }
@@ -217,10 +123,63 @@ def get_request_texts() -> List[Dict[str, Any]]:
 
     return req_texts_dicts
 
+def authenticate_aws_sso(
+        profile_name: str
+    ):
+    """
+    Authenticate with AWS SSO using the specified profile name.
+
+    :param profile_name: The AWS profile name to use for authentication.
+    """
+    try:
+        subprocess.run(["aws", "sso", "login", "--profile", profile_name])
+        logging.info("Successfully authenticated with AWS SSO.")
+    except Exception as e:
+        logging.error(f"Failed to authenticate with AWS SSO: {e}")
+
+def get_polly_wrapper(
+        profile_name: str
+    ) -> PollyWrapper:
+    """
+    Get a PollyWrapper object for interacting with the AWS Polly service.
+    
+    :param profile_name: The AWS profile name to use for authentication.
+
+    :return: A PollyWrapper object.
+    """
+    attempts = 0
+    max_auth_attempts = 2
+    while attempts < max_auth_attempts:
+        try:
+            # Create a session and clients
+            session = boto3.Session(profile_name=profile_name)
+            polly_client = session.client("polly")
+            s3_resource = session.resource("s3")
+
+            # Initialize and return the PollyWrapper object
+            polly = PollyWrapper(polly_client, s3_resource)
+            return polly
+        except:
+            if attempts < max_auth_attempts:
+                logging.info(f"SSO session expired. Attempt {attempts + 1} of {max_auth_attempts} to re-authenticate.")
+                authenticate_aws_sso(profile_name)
+            attempts += 1
+
+    # When max authentication attempts are reached
+    logging.error("Max retries reached. Unable to authenticate.")
+    logging.error("No PollyWrapper object returned. Exiting.")
+    sys.exit(1)
+
 def configure_logging(
         logging_dir: str, 
         logging_file: str
     ):
+    """
+    Configures the logging settings for the application.
+
+    :param logging_dir: The directory to store the log files.
+    :param logging_file: The name of the log file.
+    """
     if not os.path.exists(logging_dir):
         os.makedirs(logging_dir)
 
@@ -236,20 +195,17 @@ def configure_logging(
 def load_env_variables() -> Dict[str, str]:
     """
     Loads environment variables and returns them as a dictionary.
+
+    :return: A dictionary containing the environment variables.
     """
     load_dotenv()
-    # Credit to oscie57 for the sourced environment variables and values. See README for more details.
     return {
-        "API_BASE_URL": os.environ["API_BASE_URL"],
-        "USER_AGENT": os.environ["USER_AGENT"],
-        "CHARACTER_LIMIT": int(os.environ["CHARACTER_LIMIT"]),
-        "SPEAKER_MAP_TYPE": int(os.environ["SPEAKER_MAP_TYPE"]),
-        "AID": int(os.environ["AID"])
+        "AWS_PROFILE": os.environ["AWS_PROFILE"]
     }
 
 def main():
     """
-    Main function to write pieces of text to audio files
+    Main function to write pieces of text to audio files.
     """
     # Retrieve environment variables
     env_vars = load_env_variables()
@@ -265,37 +221,42 @@ def main():
     if not os.path.exists(file_storage_dir):
         os.makedirs(file_storage_dir)
 
+    # Get Polly client for text-to-speech conversion
+    profile_name = env_vars["AWS_PROFILE"]
+    polly = get_polly_wrapper(profile_name=profile_name)
+
     # Define pieces of text to convert to audio
     req_texts_dicts = get_request_texts()
 
     # Process each piece of text and convert to audio
     text_audio_map = {}
-    with requests.Session() as session:
-        # Define session headers (constant for all requests)
-        session_id = get_session_id()
-        session.headers.update(
-            {
-                'User-Agent': env_vars["USER_AGENT"],
-                'Cookie': f'sessionid={session_id}'
-            }
+    for row in req_texts_dicts:
+        # Extract relevant information
+        request_id = row["request_id"]
+        text_speaker = row["text_speaker"]
+        req_text = row["request_text"]
+
+        # Generate a unique ID for the audio file
+        unique_id = generate(size=12)
+        output_file = os.path.join(file_storage_dir, f"{unique_id}_{text_speaker}.mp3")
+        
+        # Process the request
+        logging.info(f"Processing request ID: {request_id}")
+        write_success = write_text_to_audio(
+            profile_name=profile_name,
+            polly_wrapper=polly,
+            text=req_text,
+            output_filename=output_file,
+            engine="standard",
+            voice=text_speaker,
+            audio_format="mp3",
+            lang_code="en-US"
         )
-        for row in req_texts_dicts:
-            req_text = row["request_text"]
-            text_speaker = row["text_speaker"]
-            unique_id = generate(size=12)
-            output_file = os.path.join(file_storage_dir, f"{unique_id}_{text_speaker}.mp3")
-            try:
-                write_text_to_audio( 
-                    session,
-                    output_file,
-                    req_text, 
-                    text_speaker,
-                    env_vars
-                )
-                text_audio_map[output_file] = req_text
-            except Exception as e:
-                logging.error(f"{e}: Failed to convert given text to audio: {req_text}")
-    
+        if write_success:
+            text_audio_map[output_file] = req_text
+        else:
+            logging.error(f"Failed to process request ID: {request_id}")
+
     # Log locations of audio and associated text
     log_audio_map(
         text_audio_map, 
