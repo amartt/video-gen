@@ -57,7 +57,7 @@ def write_text_to_audio(
     :param output_filename: The filename to save the audio locally.
     :param engine: The engine type.
     :param voice: The voice ID to use for synthesis.
-    :param audio_format: The audio format.
+    :param audio_format: The audio format. MP3, OGG (Vorbis), and PCM are supported.
     :param lang_code: The language code for the text.
 
     :return: True if the audio was successfully written to the output file, False otherwise.
@@ -141,7 +141,7 @@ def get_request_texts(
             for _ in range(num_rows)
         ],
         "request_text": [
-            "The path to discovery is rarely a straight line. Throughout history, explorers have ventured into the unknown, driven by an unyielding curiosity and a desire to uncover the secrets of our world. From the icy tundras of the North to the vast deserts of the Sahara, each journey held the promise of wonder, danger, and knowledge. And while their paths were fraught with challenges, each step brought new insights that reshaped our understanding of the Earth and the cosmos beyond."
+            "The path to discovery is rarely a straight line. Throughout history, explorers have ventured into the unknown, driven by an unyielding curiosity and a desire to uncover the secrets of our world."
         ]
     }
 
@@ -256,9 +256,15 @@ def main():
     # Get Polly client for text-to-speech conversion
     polly = get_polly_wrapper(profile_name=env_vars["AWS_PROFILE"])
 
-    # Define the engine and language code
+    # Define parameters for text-to-speech conversion
     engine = "standard"
     language_code = "en-US"
+    audio_format = "ogg_vorbis"
+    audio_format_dir ={
+        "mp3": "mp3",
+        "ogg_vorbis": "ogg",
+        "pcm": "pcm"
+    }
 
     # Define pieces of text to convert to audio
     req_texts_dicts = get_request_texts(
@@ -277,7 +283,7 @@ def main():
 
         # Generate a unique ID for the audio file
         unique_id = generate(size=12)
-        output_file = os.path.join(file_storage_dir, f"{unique_id}_{text_speaker}.mp3")
+        output_file = os.path.join(file_storage_dir, f"{unique_id}_{text_speaker}.{audio_format_dir[audio_format]}")
         
         # Process the request
         logging.info(f"Processing request ID: {request_id}")
@@ -287,7 +293,7 @@ def main():
             output_filename=output_file,
             engine=engine,
             voice=text_speaker,
-            audio_format="mp3",
+            audio_format=audio_format,
             lang_code=language_code
         )
         if write_success:
