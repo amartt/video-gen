@@ -8,7 +8,6 @@ from typing import List, Dict, Any
 import polars as pl
 import subprocess
 import boto3
-from botocore.exceptions import TokenRetrievalError
 from polly_wrapper import PollyWrapper
 
 def log_audio_map(
@@ -41,7 +40,6 @@ def log_audio_map(
             writer.writerow([filename, text])
 
 def write_text_to_audio(
-        profile_name: str,
         polly_wrapper: PollyWrapper, 
         text: str, 
         output_filename: str, 
@@ -53,7 +51,6 @@ def write_text_to_audio(
     """
     Synthesizes and writes the given text to audio and saves the output locally.
 
-    :param profile_name: The AWS profile name to use for authentication.
     :param polly_wrapper: An instance of PollyWrapper.
     :param text: The text to synthesize.
     :param output_filename: The filename to save the audio locally.
@@ -75,10 +72,6 @@ def write_text_to_audio(
             audio_format=audio_format,
             lang_code=lang_code
         )
-    except TokenRetrievalError as e:
-        logging.error(f"Failed to retrieve token: {e}")
-        logging.info("Attempting to re-authenticate with AWS SSO.")
-        authenticate_aws_sso(profile_name)
     except Exception as e:
         logging.error(f"Failed to synthesize audio: {e}")
 
@@ -102,7 +95,7 @@ def get_request_texts() -> List[Dict[str, Any]]:
 
     :return: A list of dictionaries containing the request_id, text_speaker, and request_text.
     """
-    num_rows = 2
+    num_rows = 1
     schema = {
         "request_id": pl.Int64,
         "text_speaker": pl.Utf8,
@@ -112,8 +105,7 @@ def get_request_texts() -> List[Dict[str, Any]]:
         "request_id": range(1, num_rows + 1),
         "text_speaker": ["Joanna" for _ in range(num_rows)],
         "request_text": [
-            "The path to discovery is rarely a straight line. Throughout history, explorers have ventured into the unknown, driven by an unyielding curiosity and a desire to uncover the secrets of our world. From the icy tundras of the North to the vast deserts of the Sahara, each journey held the promise of wonder, danger, and knowledge. And while their paths were fraught with challenges, each step brought new insights that reshaped our understanding of the Earth and the cosmos beyond.",
-            "The natural world is a delicate web of interconnected life, each species playing a vital role in the ecosystem. From the towering trees of the rainforest to the coral reefs teeming with colorful fish, our planet is a masterpiece of biodiversity. However, human activity has strained this balance, leading to habitat destruction, climate change, and species extinction. Conservation efforts are essential to preserving this fragile balance, ensuring that future generations can experience the awe and beauty of the world as we know it today."
+            "The path to discovery is rarely a straight line. Throughout history, explorers have ventured into the unknown, driven by an unyielding curiosity and a desire to uncover the secrets of our world. From the icy tundras of the North to the vast deserts of the Sahara, each journey held the promise of wonder, danger, and knowledge. And while their paths were fraught with challenges, each step brought new insights that reshaped our understanding of the Earth and the cosmos beyond."
         ]
     }
 
@@ -156,8 +148,12 @@ def get_polly_wrapper(
             polly_client = session.client("polly")
             s3_resource = session.resource("s3")
 
-            # Initialize and return the PollyWrapper object
+            # Initialize the PollyWrapper object
             polly = PollyWrapper(polly_client, s3_resource)
+
+            # Placeholder call to test the connection
+            test_result = polly.describe_voices()
+
             return polly
         except:
             if attempts < max_auth_attempts:
@@ -222,8 +218,7 @@ def main():
         os.makedirs(file_storage_dir)
 
     # Get Polly client for text-to-speech conversion
-    profile_name = env_vars["AWS_PROFILE"]
-    polly = get_polly_wrapper(profile_name=profile_name)
+    polly = get_polly_wrapper(profile_name=env_vars["AWS_PROFILE"])
 
     # Define pieces of text to convert to audio
     req_texts_dicts = get_request_texts()
@@ -243,7 +238,6 @@ def main():
         # Process the request
         logging.info(f"Processing request ID: {request_id}")
         write_success = write_text_to_audio(
-            profile_name=profile_name,
             polly_wrapper=polly,
             text=req_text,
             output_filename=output_file,
