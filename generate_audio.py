@@ -9,6 +9,7 @@ import polars as pl
 import subprocess
 import boto3
 from polly_wrapper import PollyWrapper
+import random
 
 def log_audio_map(
         text_audio_map: str,
@@ -47,7 +48,7 @@ def write_text_to_audio(
         voice: str, 
         audio_format: str,
         lang_code: str
-    ):
+    ) -> bool:
     """
     Synthesizes and writes the given text to audio and saves the output locally.
 
@@ -89,9 +90,37 @@ def write_text_to_audio(
 
     return write_success
 
-def get_request_texts() -> List[Dict[str, Any]]:
+def get_random_voice_id(
+        polly_wrapper: PollyWrapper,
+        engine: str,
+        language_code: str 
+    ) -> str:
+    """
+    Get a random voice ID for the given engine and language code.
+    
+    :param polly_wrapper: An instance of PollyWrapper.
+    :param engine: The engine type.
+    :param language_code: The language code.
+    
+    :return: A random voice ID.
+    """
+    voices_dict = polly_wrapper.get_voices(
+        engine=engine, 
+        language_code=language_code
+    )
+    return random.choice(list(voices_dict.values()))
+
+def get_request_texts(
+        polly_wrapper: PollyWrapper,
+        engine: str,
+        language_code: str
+    ) -> List[Dict[str, Any]]:
     """
     Helper function to retrieve the pieces of text to convert to audio.
+
+    :param polly_wrapper: An instance of PollyWrapper.
+    :param engine: The engine type.
+    :param language_code: The language code.
 
     :return: A list of dictionaries containing the request_id, text_speaker, and request_text.
     """
@@ -103,7 +132,14 @@ def get_request_texts() -> List[Dict[str, Any]]:
     }
     data = {
         "request_id": range(1, num_rows + 1),
-        "text_speaker": ["Joanna" for _ in range(num_rows)],
+        "text_speaker": [
+            get_random_voice_id(
+                polly_wrapper=polly_wrapper,
+                engine=engine, 
+                language_code=language_code
+            ) 
+            for _ in range(num_rows)
+        ],
         "request_text": [
             "The path to discovery is rarely a straight line. Throughout history, explorers have ventured into the unknown, driven by an unyielding curiosity and a desire to uncover the secrets of our world. From the icy tundras of the North to the vast deserts of the Sahara, each journey held the promise of wonder, danger, and knowledge. And while their paths were fraught with challenges, each step brought new insights that reshaped our understanding of the Earth and the cosmos beyond."
         ]
@@ -220,8 +256,16 @@ def main():
     # Get Polly client for text-to-speech conversion
     polly = get_polly_wrapper(profile_name=env_vars["AWS_PROFILE"])
 
+    # Define the engine and language code
+    engine = "standard"
+    language_code = "en-US"
+
     # Define pieces of text to convert to audio
-    req_texts_dicts = get_request_texts()
+    req_texts_dicts = get_request_texts(
+        polly_wrapper=polly,
+        engine=engine,
+        language_code=language_code
+    )
 
     # Process each piece of text and convert to audio
     text_audio_map = {}
@@ -241,10 +285,10 @@ def main():
             polly_wrapper=polly,
             text=req_text,
             output_filename=output_file,
-            engine="standard",
+            engine=engine,
             voice=text_speaker,
             audio_format="mp3",
-            lang_code="en-US"
+            lang_code=language_code
         )
         if write_success:
             text_audio_map[output_file] = req_text
