@@ -1,3 +1,7 @@
+"""
+This script generates audio files from text. The text is synthesized into audio using the AWS Polly service. The audio files are saved locally and the mappings of text to audio filenames are logged in a CSV file.
+"""
+
 import logging
 import sys
 import os
